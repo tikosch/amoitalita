@@ -1,11 +1,11 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import JSONResponse
 import json
 import logging
 import traceback
+from urllib.parse import parse_qs, unquote
 
 app = FastAPI()
-
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 
 @app.get("/")
@@ -15,18 +15,24 @@ def home():
 @app.post("/webhook")
 async def receive_webhook(request: Request):
     try:
-        # Read the raw request body
+        content_type = request.headers.get("content-type", "")
         raw_body = await request.body()
-        logging.info(f"Raw Webhook Body: {raw_body.decode('utf-8')}")
+        decoded_body = raw_body.decode("utf-8")
 
-        # Try to parse JSON
-        payload = await request.json()
-        logging.info(f"Received Webhook: {json.dumps(payload, indent=2, ensure_ascii=False)}")
-
-        return {"status": "Webhook received successfully", "data": payload}
+        logging.info(f"Raw Webhook Body: {decoded_body}")
+        
+        # Try JSON first
+        if "application/json" in content_type:
+            payload = await request.json()
+        else:
+            # It's form-urlencoded: parse it
+            parsed_data = parse_qs(decoded_body)
+            # Flatten the structure for logging/debugging
+            payload = {k: v[0] if len(v) == 1 else v for k, v in parsed_data.items()}
+        
+        logging.info(f"Parsed Webhook Payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
+        return {"status": "Webhook received", "data": payload}
     
     except Exception as e:
-        # Log the full error traceback
         logging.error(f"Error processing webhook: {traceback.format_exc()}")
-
-        return {"status": "error", "message": str(e)}
+        return JSONResponse(status_code=500, content={"error": str(e)})
